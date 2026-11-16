@@ -255,4 +255,6 @@ defense** and keep a backup screen recording.
 - Exclude `node_modules/`, `dist/`, `.env`; include both `package-lock.json` files
 - Test this README on a fresh clone before submitting; keep a backup demo recording
 #   F i n a l p r o j e c t _ I T P R O F E L  
+ #   F i n a l p r o j e c t _ I T P R O F E L  
+ #   F i n a l p r o j e c t _ I T P R O F E L  
  
