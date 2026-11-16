@@ -1,0 +1,2156 @@
+{
+  "info": {
+    "_postman_id": "6f2c9a34-1b7d-4e58-9a0c-3d5e7f9b2c41",
+    "name": "SPC Book Store",
+    "description": "Postman collection for the SPC Book Store API (ITPE101 final project) - a campus bookstore with verified-student discounts, campus pickup slots and a grounded AI assistant.\n\nHOW TO RUN\n1. Import this collection and the example environment (postman/environment.example.json), then select the environment.\n2. Start the backend (cd backend && npm run seed && npm start) and make sure baseUrl points at it (default http://localhost:5000).\n3. Run the \"Setup & Auth\" folder first: it logs in the seeded demo accounts and fills the collection variables (tokens and ids) used by every other request.\n4. Run the whole collection (or folders in order). Every request carries assertions, including the negative cases required by T-13.\n\nNOTES\n- Checkout / Payments requests need PayMongo TEST keys in backend/.env. Without them the API answers 502 GATEWAY_UNAVAILABLE and rolls the order back - the tests accept that as the designed safe behavior; everything else runs.\n- The AI request works with or without a GEMINI_API_KEY: without a key it demonstrates the documented keyword fallback.\n- Demo credentials (TEST ONLY, created by npm run seed): admin@spc.edu / Admin#1234, juan@spc.edu / Juan#1234 (verified student), maria@spc.edu / Maria#1234.\n- No secrets are stored in this collection: tokens are runtime collection variables set by the Login requests.\n- The API contract is openapi.yaml (served live at /api-docs).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customerToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "categoryId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productPriceCents",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "checkoutQty",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "lowStockProductId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pickupSlotId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderNumber",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "checkoutUrl",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pickupOrderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "replayKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "createdProductId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "couponCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "couponExpiry",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotWindow",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pendingStudentId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Setup & Auth",
+      "description": {
+        "content": "RUN THIS FOLDER FIRST. It logs in the seeded demo accounts and fills collection variables (tokens and ids) used by every other request. Credentials are TEST-ONLY demo accounts created by `npm run seed`.",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "name": "Health check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            },
+            "description": "API is up. No auth required."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('API answers with the standard envelope', () => pm.expect(pm.response.json().data.status).to.eql('ok'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login administrator (sets adminToken)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Demo admin account from the seed. The test script stores the JWT in the collection variable adminToken.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@spc.edu\",\n  \"password\": \"Admin#1234\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200 and a token was issued', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().data.token).to.be.a('string'); });",
+                  "pm.test('Role is admin (L1-02)', () => pm.expect(pm.response.json().data.user.role).to.eql('admin'));",
+                  "pm.collectionVariables.set('adminToken', pm.response.json().data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login verified student (sets customerToken)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Juan is a VERIFIED student in the seed: his checkout automatically receives the server-side student discount (Level 3 feature 1).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"juan@spc.edu\",\n  \"password\": \"Juan#1234\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200 and a token was issued', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().data.token).to.be.a('string'); });",
+                  "pm.test('Student verification status is verified', () => pm.expect(pm.response.json().data.user.student.status).to.eql('verified'));",
+                  "pm.collectionVariables.set('customerToken', pm.response.json().data.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register a new customer (dynamic email)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Positive registration including a student record: queued as pending for the admin verification queue.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Postman Runner\",\n  \"email\": \"pmuser{{$timestamp}}@test.edu\",\n  \"password\": \"Postman#1234\",\n  \"student\": {\n    \"number\": \"SPC-2024-9999\",\n    \"course\": \"BSIT\",\n    \"year\": \"1st\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201 created', () => pm.response.to.have.status(201));",
+                  "pm.test('Bootstrap rule: later accounts are customers, not admins', () => pm.expect(pm.response.json().data.user.role).to.eql('customer'));",
+                  "pm.test('Student verification queued as pending (L3 feature 1)', () => pm.expect(pm.response.json().data.user.student.status).to.eql('pending'));",
+                  "pm.collectionVariables.set('pendingStudentId', pm.response.json().data.user.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List categories (sets categoryId)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/categories",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "categories"
+              ]
+            },
+            "description": "Seed check: at least 5 categories (L1-13)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('At least 5 seeded categories', () => pm.expect(pm.response.json().data.length).to.be.at.least(5));",
+                  "if (pm.response.json().data.length) { pm.collectionVariables.set('categoryId', pm.response.json().data[0]._id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List products (sets productId, productPriceCents, lowStockProductId)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Seed check: at least 20 products (L1-13). Picks a purchasable product for the cart/checkout tests and the lowest-stock product for the out-of-stock negative test."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('HTTP 200 with pagination meta', () => { pm.response.to.have.status(200); pm.expect(j.meta).to.have.property('total'); });",
+                  "pm.test('At least 20 seeded products', () => pm.expect(j.meta.total).to.be.at.least(20));",
+                  "pm.test('Every price is an integer amount of centavos', () => j.data.forEach(p => pm.expect(Number.isInteger(p.priceCents)).to.be.true));",
+                  "const buyable = j.data.filter(p => !p.isPreOrder && p.stock > 0);",
+                  "pm.test('A purchasable product exists for the cart tests', () => pm.expect(buyable.length).to.be.at.least(1));",
+                  "if (buyable.length) { pm.collectionVariables.set('productId', buyable[0]._id); pm.collectionVariables.set('productPriceCents', String(buyable[0].priceCents)); pm.collectionVariables.set('lowStockProductId', buyable.slice().sort((a, b) => a.stock - b.stock)[0]._id); }"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List campus pickup slots (sets pickupSlotId)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/pickup-slots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "pickup-slots"
+              ]
+            },
+            "description": "Level 3 feature 2: public slot list with remaining capacity."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const j = pm.response.json();",
+                  "pm.test('HTTP 200 with at least one slot', () => { pm.response.to.have.status(200); pm.expect(j.data.length).to.be.at.least(1); });",
+                  "pm.test('Remaining capacity never exceeds capacity', () => j.data.forEach(s => pm.expect(s.remaining).to.be.at.most(s.capacity)));",
+                  "if (j.data.length) { pm.collectionVariables.set('pickupSlotId', j.data[0]._id); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Catalog (public)",
+      "description": {
+        "content": "Open endpoints, no token needed (L1-03 / L1-04).",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "name": "Search products by keyword",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products?q=networking",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "networking"
+                }
+              ]
+            },
+            "description": "Searches title, author, description and course code."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Standard success envelope', () => pm.expect(pm.response.json().success).to.eql(true));",
+                  "pm.test('Search finds the networking title', () => pm.expect(pm.response.json().data.length).to.be.at.least(1));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter by course code",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products?course=IT101",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "course",
+                  "value": "IT101"
+                }
+              ]
+            },
+            "description": "Campus-bookstore filter: every result belongs to the requested course (L3 supporting feature)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('All results match the course filter', () => pm.response.json().data.forEach(p => pm.expect(p.courseCode).to.eql('IT101')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Sort by price ascending",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products?sort=price_asc&limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "sort",
+                  "value": "price_asc"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "Whitelisted sort keys only (T-06)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Results are sorted ascending by price', () => { const j = pm.response.json(); if (j.data.length > 1) { pm.expect(j.data[0].priceCents).to.be.at.most(j.data[j.data.length - 1].priceCents); } });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Product detail (uses productId from Setup)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "{{productId}}"
+              ]
+            },
+            "description": "Price and stock must match the database record captured during Setup."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Price matches the catalog record (server truth)', () => pm.expect(pm.response.json().data.priceCents).to.eql(Number(pm.collectionVariables.get('productPriceCents'))));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pagination metadata",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products?page=2&limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "2"
+                },
+                {
+                  "key": "limit",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "meta.total, meta.page and meta.limit are always returned (T-06)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('meta reflects the requested page and limit', () => { const j = pm.response.json(); pm.expect(j.meta.page).to.eql(2); pm.expect(j.meta.limit).to.eql(5); });",
+                  "pm.test('meta.total is present', () => pm.expect(pm.response.json().meta).to.have.property('total'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Cart (customer)",
+      "description": {
+        "content": "Server-owned cart; every total is computed by the API, never by the client (L1-05). All requests use the customer token.",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "name": "Get my cart (server-computed totals)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cart"
+              ]
+            },
+            "description": "Returns items with line totals and subtotalCents computed on the server."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Standard success envelope', () => pm.expect(pm.response.json().success).to.eql(true));",
+                  "pm.test('Totals are server-computed integers', () => { const j = pm.response.json(); pm.expect(Number.isInteger(j.data.subtotalCents)).to.be.true; pm.expect(Number.isInteger(j.data.itemCount)).to.be.true; });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add item to cart",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cart/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cart",
+                "items"
+              ]
+            },
+            "description": "Adds one unit of the product picked during Setup. Adding beyond available stock is rejected with 409 (see Negative folder).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{productId}}\",\n  \"qty\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Cart now contains the product', () => { const j = pm.response.json(); pm.expect(j.data.itemCount).to.be.at.least(1); pm.expect(j.data.items.some(i => String(i.productId) === pm.collectionVariables.get('productId'))).to.eql(true); });",
+                  "pm.test('Cart line carries the database price, not a client price', () => { const j = pm.response.json(); const line = j.data.items.find(i => String(i.productId) === pm.collectionVariables.get('productId')); pm.expect(line.priceCents).to.eql(Number(pm.collectionVariables.get('productPriceCents'))); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update quantity to 2",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cart/items/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cart",
+                "items",
+                "{{productId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"qty\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Line total = price x qty (server math)', () => { const line = pm.response.json().data.items.find(i => String(i.productId) === pm.collectionVariables.get('productId')); if (line) { pm.expect(line.lineTotalCents).to.eql(line.priceCents * line.qty); } });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove item from cart",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cart/items/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cart",
+                "items",
+                "{{productId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Item is gone from the cart', () => pm.expect(pm.response.json().data.items.some(i => String(i.productId) === pm.collectionVariables.get('productId'))).to.eql(false));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Checkout",
+      "description": {
+        "content": "\nCreates an order (pending_payment), reserves stock atomically, then returns a hosted PayMongo TEST-mode checkout URL.\n\nIMPORTANT: set PAYMONGO_SECRET_KEY in backend/.env before running these two requests.\nWithout keys the API responds 502 GATEWAY_UNAVAILABLE and rolls the order back - that is the designed, safe behavior and the tests accept it.\n\nTotals are recomputed on the server: the tampered priceCents in the first request body is ignored (L2-02).\nThe Idempotency-Key header makes repeated clicks safe (L2-08); the same key is replayed in the Negative folder.",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "name": "Checkout - delivery with coupon BOOKS50 (Idempotency-Key)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{replayKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkout"
+              ]
+            },
+            "description": "BOOKS50 requires a 300 peso minimum spend; checkoutQty is computed so the subtotal always qualifies. Juan is a verified student, so the automatic student discount also applies.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"delivery\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"qty\": \"{{checkoutQty}}\",\n      \"priceCents\": 1,\n      \"title\": \"TAMPERED-PRICE\"\n    }\n  ],\n  \"couponCode\": \"BOOKS50\",\n  \"shipping\": {\n    \"name\": \"Juan Dela Cruz\",\n    \"phone\": \"09171234567\",\n    \"address\": \"Tubod, Iligan City\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('replayKey', 'postman-' + Date.now());",
+                  "const price = Number(pm.collectionVariables.get('productPriceCents')) || 1;",
+                  "pm.collectionVariables.set('checkoutQty', String(Math.max(1, Math.min(20, Math.ceil(30000 / price)))));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 order created, or 502 when PayMongo test keys are not configured (order rolled back)', () => pm.expect([201, 502]).to.include(pm.response.code));",
+                  "const j = pm.response.json();",
+                  "if (pm.response.code === 201) {",
+                  "  pm.test('Order starts as pending_payment', () => pm.expect(j.data.order.status).to.eql('pending_payment'));",
+                  "  pm.test('Hosted checkout URL returned', () => pm.expect(j.data.checkoutUrl).to.include('http'));",
+                  "  pm.test('Tampered client price ignored - database price wins (L2-02)', () => { pm.expect(Number(j.data.order.items[0].priceCents)).to.eql(Number(pm.collectionVariables.get('productPriceCents'))); pm.expect(j.data.order.items[0].title).to.not.eql('TAMPERED-PRICE'); });",
+                  "  pm.test('Verified-student discount applied server-side (L3 feature 1)', () => pm.expect(j.data.order.studentDiscountCents).to.be.above(0));",
+                  "  pm.test('Total = subtotal - student discount - coupon + shipping', () => { const o = j.data.order; pm.expect(o.totalCents).to.eql(o.subtotalCents - o.studentDiscountCents - o.discountCents + o.shippingFeeCents); });",
+                  "  pm.collectionVariables.set('orderId', j.data.order._id);",
+                  "  pm.collectionVariables.set('orderNumber', j.data.order.orderNumber);",
+                  "  pm.collectionVariables.set('checkoutUrl', j.data.checkoutUrl);",
+                  "} else {",
+                  "  pm.test('Controlled rollback envelope (no partial state)', () => { pm.expect(j.success).to.eql(false); pm.expect(j.error.code).to.eql('GATEWAY_UNAVAILABLE'); });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Checkout - campus pickup with slot (no shipping fee)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "postman-pickup-{{$timestamp}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkout"
+              ]
+            },
+            "description": "Level 3 feature 2: claims a campus pickup slot; pickup orders never pay the shipping fee.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"pickup\",\n  \"pickupSlotId\": \"{{pickupSlotId}}\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"qty\": 1\n    }\n  ],\n  \"shipping\": {\n    \"name\": \"Juan Dela Cruz\",\n    \"phone\": \"09171234567\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 created, 409 when the slot is full, or 502 without gateway keys', () => pm.expect([201, 409, 502]).to.include(pm.response.code));",
+                  "const j = pm.response.json();",
+                  "if (pm.response.code === 201) {",
+                  "  pm.test('Campus pickup has no shipping fee (L3 feature 2)', () => pm.expect(j.data.order.shippingFeeCents).to.eql(0));",
+                  "  pm.test('Order records the pickup method', () => pm.expect(j.data.order.method).to.eql('pickup'));",
+                  "  pm.collectionVariables.set('pickupOrderId', j.data.order._id);",
+                  "} else if (pm.response.code === 409) {",
+                  "  pm.test('Slot capacity / stock enforced atomically', () => pm.expect(['PICKUP_SLOT_FULL', 'OUT_OF_STOCK']).to.include(j.error.code));",
+                  "} else {",
+                  "  pm.test('Controlled rollback envelope', () => pm.expect(j.error.code).to.eql('GATEWAY_UNAVAILABLE'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Orders (customer)",
+      "description": {
+        "content": "Customer order endpoints. Detail / cancel / retry depend on the order created in the Checkout folder;\nif the gateway keys were missing, orderId is unset and those requests respond 404 (the tests accept it).",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "name": "List my orders",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders"
+              ]
+            },
+            "description": "Only the signed-in customers orders are returned (L1-07)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Pagination meta present', () => pm.expect(pm.response.json().meta).to.have.property('total'));",
+                  "pm.test('Orders carry lifecycle statuses', () => pm.response.json().data.forEach(o => pm.expect(['pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'cancelled', 'expired']).to.include(o.status)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Order detail with status history",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": "Every transition is recorded with actor and timestamp (L2-04)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 detail, or 404 when no order exists (gateway keys missing)', () => pm.expect([200, 404]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.test('Status history recorded (L2-04)', () => pm.expect(j.data.history.length).to.be.at.least(1));",
+                  "  pm.test('Order number matches the created order', () => pm.expect(j.data.order.orderNumber).to.eql(pm.collectionVariables.get('orderNumber')));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancel unpaid order",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "cancel"
+              ]
+            },
+            "description": "Cancelling releases reserved stock. A PAID order cannot be cancelled: the state machine answers 409 (L1-07 / L2-04)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 cancelled, 409 state-machine protection, or 404 without an order', () => pm.expect([200, 404, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('Order is now cancelled', () => pm.expect(pm.response.json().data.status).to.eql('cancelled'));",
+                  "}",
+                  "if (pm.response.code === 409) {",
+                  "  pm.test('Illegal transition rejected with INVALID_STATUS_TRANSITION', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_STATUS_TRANSITION'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Retry payment (new hosted session)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orders/{{orderId}}/pay",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orders",
+                "{{orderId}}",
+                "pay"
+              ]
+            },
+            "description": "Unhappy-path recovery: issues a fresh payment session for an unpaid order (L2-07)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 new session, 409 after a terminal state, 404 without an order, 502 without keys', () => pm.expect([200, 404, 409, 502]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('A NEW hosted checkout URL is issued', () => pm.expect(pm.response.json().data.checkoutUrl).to.include('http'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "description": {
+        "content": "Retrieve-on-return reconciliation (L2-06). The signed webhook endpoint itself is exercised in the Negative folder.",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "name": "Payment status - verify with gateway",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/payments/status/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "status",
+                "{{orderId}}"
+              ]
+            },
+            "description": "Asks the gateway for the real status, amount and currency and can mark the order paid even when the webhook was missed."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 verified status, or 404/409 without an order or session', () => pm.expect([200, 404, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  pm.test('Gateway verification result included (L2-06)', () => pm.expect(pm.response.json().data).to.have.property('gateway'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "AI Assistant",
+      "description": {
+        "content": "Level 4: grounded AI product discovery. Candidates come from the database, every returned product id is validated,\nand names/prices/stock are re-read from MongoDB. Without a Gemini key the endpoint answers with the documented\nkeyword fallback (source: 'fallback') instead of failing.",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "name": "Ask for a networking book (grounded answer)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ai/assistant",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "assistant"
+              ]
+            },
+            "description": "Works with or without a GEMINI_API_KEY: with a key it returns an AI-ranked answer, without it the keyword fallback.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What book do you recommend for networking or my IT305 subject?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Source is ai or the documented keyword fallback (L4-06)', () => pm.expect(['ai', 'fallback']).to.include(pm.response.json().data.source));",
+                  "pm.test('Products are grounded database records (integer centavos, L4-05)', () => pm.response.json().data.products.forEach(p => { pm.expect(Number.isInteger(p.priceCents)).to.be.true; pm.expect(p.stock).to.be.at.least(0); }));",
+                  "if (pm.response.json().data.source === 'fallback') { console.log('AI provider unavailable or not configured - fallbackReason: ' + pm.response.json().data.fallbackReason); }"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin (role-protected)",
+      "description": {
+        "content": "Every endpoint here requires the admin role. A customer token receives 403 (see Negative folder).\nCreate product / coupon / slot use dynamic values so the collection can be re-run safely.",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "name": "Dashboard (operational summary)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "dashboard"
+              ]
+            },
+            "description": "Figures reconcile directly with the database (L1-12)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Standard success envelope', () => pm.expect(pm.response.json().success).to.eql(true));",
+                  "pm.test('Dashboard figures present', () => { const d = pm.response.json().data; pm.expect(d).to.have.property('totalPaidOrders'); pm.expect(d).to.have.property('grossSalesCents'); pm.expect(d).to.have.property('pendingOrders'); pm.expect(d.lowStock).to.be.an('array'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List all products (admin view)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/products?limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('meta.total present', () => pm.expect(pm.response.json().meta).to.have.property('total'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create product (dynamic title, sets createdProductId)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "products"
+              ]
+            },
+            "description": "Price is sent in PESOS and converted to integer centavos by the server.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Test Book {{$timestamp}}\",\n  \"author\": \"QA Bot\",\n  \"description\": \"Created by the Postman collection run\",\n  \"price\": 199,\n  \"categoryId\": \"{{categoryId}}\",\n  \"stock\": 3,\n  \"courseCode\": \"IT999\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201 created', () => pm.response.to.have.status(201));",
+                  "pm.test('Pesos converted to centavos: 199 -> 19900', () => pm.expect(pm.response.json().data.priceCents).to.eql(19900));",
+                  "pm.collectionVariables.set('createdProductId', pm.response.json().data._id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Adjust stock with audit reason",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/products/{{createdProductId}}/stock",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "products",
+                "{{createdProductId}}",
+                "stock"
+              ]
+            },
+            "description": "Every stock change records previous value, new value, delta, reason and actor (L1-10). Stock can never go below zero.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"delta\": -1,\n  \"reason\": \"Postman audit test\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201 movement recorded', () => pm.response.to.have.status(201));",
+                  "pm.test('Audit shows 3 -> 2 with delta -1', () => { const m = pm.response.json().data.movement; pm.expect(m.previousStock).to.eql(3); pm.expect(m.newStock).to.eql(2); pm.expect(m.delta).to.eql(-1); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stock movement audit trail",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/products/{{createdProductId}}/stock-movements",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "products",
+                "{{createdProductId}}",
+                "stock-movements"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('At least one audit entry with previous/new/reason', () => { const j = pm.response.json(); pm.expect(j.data.length).to.be.at.least(1); const m = j.data[0]; pm.expect(m).to.have.property('previousStock'); pm.expect(m).to.have.property('newStock'); pm.expect(m).to.have.property('reason'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Deactivate product (soft delete)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/products/{{createdProductId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "products",
+                "{{createdProductId}}"
+              ]
+            },
+            "description": "Soft delete: the product is hidden but order history keeps its snapshot (L1-09)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('isActive is now false', () => pm.expect(pm.response.json().data.isActive).to.eql(false));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List coupons (seed check)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/coupons",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "coupons"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Seeded coupons present, including EXPIRED5 used by the negative tests', () => { const codes = pm.response.json().data.map(c => c.code); pm.expect(codes).to.include('WELCOME10'); pm.expect(codes).to.include('EXPIRED5'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create coupon (dynamic code)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/coupons",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "coupons"
+              ]
+            },
+            "description": "5 percent off with a 100 peso minimum spend, valid for one week.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"{{couponCode}}\",\n  \"type\": \"percentage\",\n  \"value\": 5,\n  \"minSpendCents\": 10000,\n  \"expiresAt\": \"{{couponExpiry}}\",\n  \"usageLimit\": 0,\n  \"perCustomerLimit\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('couponCode', 'PM' + Date.now());",
+                  "pm.collectionVariables.set('couponExpiry', new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201 created', () => pm.response.to.have.status(201));",
+                  "pm.test('Code stored uppercase', () => pm.expect(pm.response.json().data.code).to.eql(pm.collectionVariables.get('couponCode').toUpperCase()));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List all orders (admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/orders?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "orders"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('meta.total present', () => pm.expect(pm.response.json().meta).to.have.property('total'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create campus pickup slot (unique window)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/pickup-slots",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "pickup-slots"
+              ]
+            },
+            "description": "Level 3 feature 2: staff control pickup capacity. The window is unique per date, so re-running stays safe.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"date\": \"{{slotDate}}\",\n  \"timeWindow\": \"{{slotWindow}}\",\n  \"capacity\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('slotDate', new Date(Date.now() + 86400000).toISOString().slice(0, 10));",
+                  "pm.collectionVariables.set('slotWindow', '07:00-09:00 #' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201 created with capacity 2 and 0 booked', () => { const s = pm.response.json().data; pm.response.to.have.status(201); pm.expect(s.capacity).to.eql(2); pm.expect(s.booked).to.eql(0); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Student verification queue",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/students",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "students"
+              ]
+            },
+            "description": "Level 3 feature 1: pending verifications awaiting an admin decision."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Queue entries have a verification status', () => pm.response.json().data.forEach(s => pm.expect(['pending', 'verified', 'rejected']).to.include(s.student.status)));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Approve the new student verification",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/students/{{pendingStudentId}}/verification",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "students",
+                "{{pendingStudentId}}",
+                "verification"
+              ]
+            },
+            "description": "Approving activates the automatic student discount for that customer at checkout (L3 feature 1).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"approve\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Student is now verified', () => pm.expect(pm.response.json().data.student.status).to.eql('verified'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Negative & edge cases",
+      "description": {
+        "content": "Required negative coverage (T-13): unauthenticated 401, forbidden 403, not-found 404, invalid input 422,\nout-of-stock 409, invalid coupon 422, invalid webhook signature 401, duplicate idempotency (no duplicate order).\nRun after Setup & Auth (needs tokens and ids).",
+        "type": "text/plain"
+      },
+      "item": [
+        {
+          "name": "Unauthenticated request -> 401",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cart",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cart"
+              ]
+            },
+            "description": "No Authorization header at all."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "pm.test('UNAUTHENTICATED error code with requestId', () => { const j = pm.response.json(); pm.expect(j.success).to.eql(false); pm.expect(j.error.code).to.eql('UNAUTHENTICATED'); pm.expect(j).to.have.property('requestId'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer token on admin endpoint -> 403",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "dashboard"
+              ]
+            },
+            "description": "Role checks happen on the server, not only in the UI (L1-02 / S-03)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));",
+                  "pm.test('FORBIDDEN', () => pm.expect(pm.response.json().error.code).to.eql('FORBIDDEN'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown product id -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/products/000000000000000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "products",
+                "000000000000000000000000"
+              ]
+            },
+            "description": "A well-formed but nonexistent id."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                  "pm.test('PRODUCT_NOT_FOUND', () => pm.expect(pm.response.json().error.code).to.eql('PRODUCT_NOT_FOUND'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid registration input -> 422 with field details",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Bad name, email and password: field-level details come back (T-03 / S-04).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"x\",\n  \"email\": \"bad\",\n  \"password\": \"123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 422', () => pm.response.to.have.status(422));",
+                  "pm.test('VALIDATION_ERROR with at least one field detail', () => { const j = pm.response.json(); pm.expect(j.error.code).to.eql('VALIDATION_ERROR'); pm.expect(Object.keys(j.error.details).length).to.be.at.least(1); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Out-of-stock cart add -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/cart/items",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "cart",
+                "items"
+              ]
+            },
+            "description": "Requests 99 units of the lowest-stock product found during Setup.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"productId\": \"{{lowStockProductId}}\",\n  \"qty\": 99\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409 conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('OUT_OF_STOCK with the available quantity in the message', () => { const j = pm.response.json(); pm.expect(j.error.code).to.eql('OUT_OF_STOCK'); pm.expect(j.error.message).to.include('left in stock'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Expired coupon -> 422 COUPON_EXPIRED",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkout"
+              ]
+            },
+            "description": "EXPIRED5 is a seeded expired coupon: validation fails before any order is created and the total is unchanged.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"delivery\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"qty\": 1\n    }\n  ],\n  \"couponCode\": \"EXPIRED5\",\n  \"shipping\": {\n    \"name\": \"Juan Dela Cruz\",\n    \"phone\": \"09171234567\",\n    \"address\": \"Tubod, Iligan City\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 422', () => pm.response.to.have.status(422));",
+                  "pm.test('COUPON_EXPIRED - no order is created', () => pm.expect(pm.response.json().error.code).to.eql('COUPON_EXPIRED'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Duplicate idempotency: same key -> same order, no duplicate",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{replayKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "checkout"
+              ]
+            },
+            "description": "Replays the EXACT key and body of the first checkout request. The API must return the same order, not create a second one (L2-08).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"delivery\",\n  \"items\": [\n    {\n      \"productId\": \"{{productId}}\",\n      \"qty\": \"{{checkoutQty}}\",\n      \"priceCents\": 1,\n      \"title\": \"TAMPERED-PRICE\"\n    }\n  ],\n  \"couponCode\": \"BOOKS50\",\n  \"shipping\": {\n    \"name\": \"Juan Dela Cruz\",\n    \"phone\": \"09171234567\",\n    \"address\": \"Tubod, Iligan City\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 replay, or 502 when the original checkout also failed (no keys)', () => pm.expect([200, 502]).to.include(pm.response.code));",
+                  "if (pm.response.code === 200) {",
+                  "  const j = pm.response.json();",
+                  "  pm.test('Replayed flag set - no duplicate order created', () => pm.expect(j.meta.replayed).to.eql(true));",
+                  "  pm.test('Same order id as the first checkout', () => pm.expect(j.data.order._id).to.eql(pm.collectionVariables.get('orderId')));",
+                  "} else {",
+                  "  pm.test('Controlled rollback again - nothing duplicated', () => pm.expect(pm.response.json().error.code).to.eql('GATEWAY_UNAVAILABLE'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid webhook signature -> 401, order untouched",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "paymongo-signature",
+                "value": "t=1,test=invalid"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/payments/webhook",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "payments",
+                "webhook"
+              ]
+            },
+            "description": "Forged signature over the raw body is rejected before anything else happens (S-07 / L2-05).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"data\": {\n    \"id\": \"evt-forged-{{$timestamp}}\",\n    \"type\": \"checkout_session.payment.paid\",\n    \"attributes\": {\n      \"data\": {\n        \"id\": \"cs_forged\"\n      }\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "pm.test('INVALID_WEBHOOK_SIGNATURE', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_WEBHOOK_SIGNATURE'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Illegal order transition -> 409",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/admin/orders/{{orderId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "admin",
+                "orders",
+                "{{orderId}}",
+                "status"
+              ]
+            },
+            "description": "pending_payment -> delivered is not an allowed transition; the state machine answers 409 (L2-04).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"delivered\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 illegal transition, or 404 when no order exists', () => pm.expect([409, 404]).to.include(pm.response.code));",
+                  "if (pm.response.code === 409) {",
+                  "  pm.test('INVALID_STATUS_TRANSITION', () => pm.expect(pm.response.json().error.code).to.eql('INVALID_STATUS_TRANSITION'));",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "AI question over 500 chars -> 422",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{customerToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/ai/assistant",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "ai",
+                "assistant"
+              ]
+            },
+            "description": "Input bound enforced before the provider is called (L4-08).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"{{longQuestion}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('longQuestion', new Array(502).join('a'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 422 input bound enforced', () => pm.response.to.have.status(422));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

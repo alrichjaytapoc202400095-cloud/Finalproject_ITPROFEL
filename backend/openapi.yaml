@@ -1,0 +1,725 @@
+openapi: 3.0.3
+info:
+  title: SPC Book Store API
+  version: 1.0.0
+  description: |
+    REST API for the SPC Book Store campus bookstore (ITPE101 final project).
+
+    Money is represented everywhere as an integer number of CENTAVOS
+    (PHP 450.00 = 45000). The server always recomputes prices, discounts
+    and totals from database records - client-sent money values are ignored.
+
+    All endpoints are versioned under /api/v1. Bearer token authentication
+    is used; every admin endpoint also requires the admin role.
+servers:
+  - url: http://localhost:5000/api/v1
+    description: Local development
+  - url: https://YOUR-API-URL/api/v1
+    description: Deployed API (replace with the Render/Railway URL)
+tags:
+  - name: Auth
+  - name: Catalog
+  - name: Cart
+  - name: Checkout
+  - name: Orders
+  - name: Payments
+  - name: AI
+  - name: Admin
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Create an account (the very first account becomes the administrator)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, example: Juan Dela Cruz }
+                email: { type: string, format: email, example: juan@spc.edu }
+                password: { type: string, minLength: 8, example: 'Juan#1234' }
+                student:
+                  type: object
+                  properties:
+                    number: { type: string, example: 'SPC-2023-0001' }
+                    course: { type: string, example: BSIT }
+                    year: { type: string, example: 3rd }
+      responses:
+        '201': { description: Account created (returns user + token), content: { application/json: { schema: { $ref: '#/components/schemas/AuthResponse' } } } }
+        '409': { description: Email already used, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' }, example: { success: false, error: { code: EMAIL_IN_USE, message: An account with that email already exists. } } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Sign in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: juan@spc.edu }
+                password: { type: string, example: 'Juan#1234' }
+      responses:
+        '200': { description: Token issued, content: { application/json: { schema: { $ref: '#/components/schemas/AuthResponse' } } } }
+        '401': { description: Invalid credentials (generic message), content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Current user
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: User profile, content: { application/json: { schema: { allOf: [{ $ref: '#/components/schemas/SuccessEnvelope' }] } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /auth/student-verification:
+    post:
+      tags: [Auth]
+      summary: Submit student verification (Level 3 feature 1)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [number, course, year]
+              properties:
+                number: { type: string, example: 'SPC-2023-0001' }
+                course: { type: string, example: BSIT }
+                year: { type: string, example: 3rd }
+      responses:
+        '200': { description: Queued for admin approval }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /categories:
+    get:
+      tags: [Catalog]
+      summary: List product categories
+      responses:
+        '200': { description: Categories }
+  /products:
+    get:
+      tags: [Catalog]
+      summary: List active products with search, filter, sort, pagination
+      parameters:
+        - { in: query, name: q, schema: { type: string }, description: Search title/author/description/course code }
+        - { in: query, name: category, schema: { type: string }, description: Category id }
+        - { in: query, name: course, schema: { type: string }, description: Course code filter, example: IT101 }
+        - { in: query, name: min, schema: { type: number }, description: Min price in pesos }
+        - { in: query, name: max, schema: { type: number }, description: Max price in pesos }
+        - { in: query, name: sort, schema: { type: string, enum: [newest, price_asc, price_desc, title] } }
+        - { in: query, name: page, schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: limit, schema: { type: integer, minimum: 1, maximum: 50, default: 12 } }
+      responses:
+        '200':
+          description: Paginated products
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaginatedProducts' }
+  /products/{id}:
+    get:
+      tags: [Catalog]
+      summary: Product detail
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Product }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /pickup-slots:
+    get:
+      tags: [Catalog]
+      summary: Available campus pickup slots (Level 3 feature 2)
+      responses:
+        '200': { description: Slots with remaining capacity }
+  /cart:
+    get:
+      tags: [Cart]
+      summary: Server-owned cart with server-computed totals
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Cart }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /cart/items:
+    post:
+      tags: [Cart]
+      summary: Add a product to the cart
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId, qty]
+              properties:
+                productId: { type: string }
+                qty: { type: integer, minimum: 1, maximum: 99 }
+      responses:
+        '200': { description: Updated cart }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Out of stock, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+  /cart/items/{productId}:
+    patch:
+      tags: [Cart]
+      summary: Change quantity (0 removes the item)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: productId, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [qty], properties: { qty: { type: integer, minimum: 0, maximum: 99 } } } } }
+      responses:
+        '200': { description: Updated cart }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Out of stock }
+    delete:
+      tags: [Cart]
+      summary: Remove an item
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: productId, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Updated cart }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /checkout:
+    post:
+      tags: [Checkout]
+      summary: Create an order and a hosted payment session (PayMongo test mode)
+      description: |
+        Totals are ALWAYS recomputed on the server. Send an `Idempotency-Key`
+        header so repeated clicks return the same order instead of a new one.
+        `method: pickup` requires `pickupSlotId`; `method: delivery` requires a
+        shipping address.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: header, name: Idempotency-Key, required: false, schema: { type: string }, description: Unique key per checkout attempt }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method]
+              properties:
+                method: { type: string, enum: [pickup, delivery], example: delivery }
+                items:
+                  type: array
+                  description: Optional - omit to check out the whole server cart
+                  items:
+                    type: object
+                    properties:
+                      productId: { type: string }
+                      qty: { type: integer }
+                couponCode: { type: string, example: WELCOME10 }
+                pickupSlotId: { type: string, description: Required for pickup }
+                shipping:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    phone: { type: string }
+                    address: { type: string, description: Required for delivery }
+      responses:
+        '201':
+          description: Order created with a hosted checkout URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      order: { $ref: '#/components/schemas/Order' }
+                      checkoutUrl: { type: string, example: 'https://checkout.paymongo.com/...' }
+        '200': { description: Same idempotency key replayed - same order returned }
+        '409': { description: Out of stock or pickup slot full, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } } }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '502': { description: Payment gateway unavailable (order rolled back - retry) }
+  /orders:
+    get:
+      tags: [Orders]
+      summary: List the signed-in customer's orders
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: page, schema: { type: integer } }
+        - { in: query, name: limit, schema: { type: integer, maximum: 50 } }
+        - { in: query, name: status, schema: { type: string, enum: [pending_payment, paid, processing, shipped, delivered, cancelled, expired] } }
+      responses:
+        '200': { description: Paginated orders }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /orders/{id}:
+    get:
+      tags: [Orders]
+      summary: Order detail with status history (own orders only)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Order + status history }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /orders/{id}/cancel:
+    post:
+      tags: [Orders]
+      summary: Cancel an unpaid order (releases reserved stock)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Order cancelled }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Cancelling a paid/processing order is not allowed }
+  /orders/{id}/pay:
+    post:
+      tags: [Orders]
+      summary: Retry payment - creates a NEW payment session for an unpaid order
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: New hosted checkout URL }
+        '409': { description: Only pending_payment orders can be paid again }
+  /payments/webhook:
+    post:
+      tags: [Payments]
+      summary: Gateway webhook (raw body + Paymongo-Signature verification)
+      description: |
+        Public endpoint called by PayMongo. The RAW request body is verified with
+        HMAC-SHA256 using the webhook secret. Invalid signature -> 401. Event ids
+        are stored uniquely, so a replayed webhook is a harmless no-op. Amount and
+        currency are re-verified with the gateway before an order is marked paid.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      parameters:
+        - { in: header, name: paymongo-signature, required: true, schema: { type: string }, example: 't=1699999999,test=9f2a...' }
+      responses:
+        '200': { description: Event received (or duplicate/ignored) }
+        '400': { description: Payload is not JSON }
+        '401': { description: Signature verification failed }
+  /payments/status/{orderId}:
+    get:
+      tags: [Payments]
+      summary: Retrieve-on-return reconciliation - verify the payment with the gateway
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: orderId, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Gateway status + updated order }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: No payment session }
+  /ai/assistant:
+    post:
+      tags: [AI]
+      summary: AI Product Discovery Assistant (Gemini, backend-only, grounded on the catalog)
+      description: |
+        Candidates are retrieved from the database, ranked by the model, and every
+        returned product id is validated. Names, prices and stock always come from
+        the database. If the provider fails, a keyword-search fallback is returned
+        with source: 'fallback' - the endpoint never returns a raw provider error.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { type: string, minLength: 3, maxLength: 500, example: What book do I need for IT301? }
+      responses:
+        '200':
+          description: Answer + products (authoritative database data)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      answer: { type: string }
+                      source: { type: string, enum: [ai, fallback] }
+                      fallbackReason: { type: string, enum: [not_configured, invalid_output, unavailable] }
+                      products:
+                        type: array
+                        items: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { description: AI rate limit exceeded }
+  /admin/dashboard:
+    get:
+      tags: [Admin]
+      summary: Operational summary (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Totals reconcile with the database }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /admin/products:
+    get:
+      tags: [Admin]
+      summary: List all products including inactive (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Products }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [Admin]
+      summary: Create a product
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, price, categoryId, stock]
+              properties:
+                title: { type: string, example: Introduction to Computing }
+                author: { type: string }
+                description: { type: string }
+                price: { type: number, description: PESOS - converted to centavos by the server, example: 480 }
+                categoryId: { type: string }
+                stock: { type: integer, minimum: 0 }
+                courseCode: { type: string, example: IT101 }
+                imageUrl: { type: string }
+                isPreOrder: { type: boolean }
+                releaseDate: { type: string, format: date }
+      responses:
+        '201': { description: Created }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/products/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a product (isActive=false hides it)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                price: { type: number }
+                stock: { type: integer }
+                isActive: { type: boolean }
+      responses:
+        '200': { description: Updated }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [Admin]
+      summary: Soft delete (deactivate) - order history keeps its snapshot
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Deactivated }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /admin/products/{id}/stock:
+    post:
+      tags: [Admin]
+      summary: Adjust stock with an auditable reason (never below zero)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [delta, reason]
+              properties:
+                delta: { type: integer, description: Negative to reduce, example: -2 }
+                reason: { type: string, example: Damaged copy removed }
+      responses:
+        '201': { description: Movement recorded }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { description: Stock cannot go below zero }
+  /admin/products/{id}/stock-movements:
+    get:
+      tags: [Admin]
+      summary: Stock movement audit trail
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Movements }
+  /admin/coupons:
+    get:
+      tags: [Admin]
+      summary: List coupons
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Coupons } }
+    post:
+      tags: [Admin]
+      summary: Create a coupon
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, type, value, expiresAt]
+              properties:
+                code: { type: string, example: WELCOME10 }
+                type: { type: string, enum: [percentage, fixed] }
+                value: { type: integer, description: percentage 1-100, or fixed centavos }
+                minSpendCents: { type: integer }
+                expiresAt: { type: string, format: date }
+                usageLimit: { type: integer, description: 0 = unlimited }
+                perCustomerLimit: { type: integer }
+                active: { type: boolean }
+      responses:
+        '201': { description: Created }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /admin/coupons/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a coupon
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses: { '200': { description: Updated } }
+    delete:
+      tags: [Admin]
+      summary: Deactivate a coupon (soft)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses: { '204': { description: Deactivated } }
+  /admin/orders:
+    get:
+      tags: [Admin]
+      summary: List all orders with filters
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { in: query, name: status, schema: { type: string } }
+        - { in: query, name: from, schema: { type: string, format: date } }
+        - { in: query, name: to, schema: { type: string, format: date } }
+      responses: { '200': { description: Orders } }
+  /admin/orders/{id}/status:
+    patch:
+      tags: [Admin]
+      summary: Move an order along the state machine (409 on illegal transitions)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [paid, processing, shipped, delivered, cancelled, expired] }
+      responses:
+        '200': { description: Transition recorded in history }
+        '409': { description: Illegal transition }
+  /admin/orders/{id}/reconcile:
+    post:
+      tags: [Admin]
+      summary: Reconcile an order with the gateway (missed-webhook recovery)
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: Gateway result + updated order }
+  /admin/pickup-slots:
+    get:
+      tags: [Admin]
+      summary: List all pickup slots
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Slots } }
+    post:
+      tags: [Admin]
+      summary: Create a pickup slot
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, timeWindow, capacity]
+              properties:
+                date: { type: string, example: '2026-11-20' }
+                timeWindow: { type: string, example: 09:00-11:00 }
+                capacity: { type: integer, minimum: 1 }
+      responses:
+        '201': { description: Created }
+        '409': { description: Slot exists for that date and window }
+  /admin/pickup-slots/{id}:
+    patch:
+      tags: [Admin]
+      summary: Update a slot
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses: { '200': { description: Updated } }
+    delete:
+      tags: [Admin]
+      summary: Deactivate a slot
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      responses: { '200': { description: Deactivated } }
+  /admin/students:
+    get:
+      tags: [Admin]
+      summary: Student verification queue (Level 3 feature 1)
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Students } }
+  /admin/students/{id}/verification:
+    patch:
+      tags: [Admin]
+      summary: Approve or reject a student verification
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, required: true, schema: { type: string } }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [approve], properties: { approve: { type: boolean } } }
+      responses: { '200': { description: Decision recorded and customer notified } }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    Forbidden:
+      description: Role not allowed (customer token on an admin route)
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' }, example: { success: false, error: { code: FORBIDDEN, message: You do not have permission to perform this action. } } } }
+    NotFound:
+      description: Resource not found
+      content: { application/json: { schema: { $ref: '#/components/schemas/ErrorResponse' } } }
+    ValidationError:
+      description: Input failed validation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+          example:
+            success: false
+            error:
+              code: VALIDATION_ERROR
+              message: Please check the highlighted fields.
+              details: { body.email: 'Must be a valid email address.' }
+            requestId: 7d0c...
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        success: { type: boolean, example: true }
+        data: { type: object }
+        meta: { type: object, nullable: true }
+    ErrorResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code: { type: string, example: VALIDATION_ERROR }
+            message: { type: string }
+            details: { type: object, nullable: true }
+        requestId: { type: string, example: 9a1f8c2e-3b47-4d0a-9c1f-6e2b7d8a5f30 }
+    AuthResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: object
+          properties:
+            user:
+              type: object
+              properties:
+                id: { type: string }
+                name: { type: string }
+                email: { type: string }
+                role: { type: string, enum: [customer, admin] }
+                student:
+                  type: object
+                  properties:
+                    number: { type: string }
+                    course: { type: string }
+                    year: { type: string }
+                    status: { type: string, enum: [none, pending, verified, rejected] }
+            token: { type: string, example: eyJhbGciOi... }
+    Product:
+      type: object
+      properties:
+        _id: { type: string }
+        title: { type: string }
+        author: { type: string }
+        description: { type: string }
+        priceCents: { type: integer, example: 48000 }
+        category:
+          type: object
+          properties: { name: { type: string } }
+        stock: { type: integer }
+        courseCode: { type: string }
+        isPreOrder: { type: boolean }
+        releaseDate: { type: string, nullable: true }
+        isActive: { type: boolean }
+    PaginatedProducts:
+      type: object
+      properties:
+        success: { type: boolean }
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Product' }
+        meta:
+          type: object
+          properties:
+            total: { type: integer }
+            page: { type: integer }
+            limit: { type: integer }
+            pages: { type: integer }
+            sort: { type: string }
+    Order:
+      type: object
+      properties:
+        _id: { type: string }
+        orderNumber: { type: string, example: SPC-M1AB2C-9F3E }
+        user: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              product: { type: string }
+              title: { type: string }
+              author: { type: string }
+              priceCents: { type: integer }
+              qty: { type: integer }
+        method: { type: string, enum: [pickup, delivery] }
+        shipping:
+          type: object
+          properties:
+            name: { type: string }
+            phone: { type: string }
+            address: { type: string }
+        subtotalCents: { type: integer }
+        studentDiscountCents: { type: integer }
+        discountCents: { type: integer }
+        shippingFeeCents: { type: integer }
+        totalCents: { type: integer }
+        currency: { type: string, example: PHP }
+        coupon:
+          type: object
+          properties:
+            code: { type: string }
+            type: { type: string }
+            value: { type: integer }
+        status: { type: string, enum: [pending_payment, paid, processing, shipped, delivered, cancelled, expired] }
+        payment:
+          type: object
+          properties:
+            provider: { type: string }
+            sessionId: { type: string }
+            checkoutUrl: { type: string }
+            reference: { type: string }
+            paidAt: { type: string, nullable: true }
+            amountMismatch: { type: boolean }
+        stockReleased: { type: boolean }
+        createdAt: { type: string, format: date-time }
