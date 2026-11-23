@@ -1,149 +1,167 @@
-import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { api, pesos, getToken } from '../api/client.js';
-import Alert from '../components/Alert.jsx';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { ordersApi } from '../api/endpoints.js';
+import { useAuth } from '../context/AuthContext.jsx';
+import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
+import { useApiQuery } from '../hooks/useApiQuery.js';
+import { useToast } from '../context/ToastContext.jsx';
+import { describeError } from '../utils/errors.js';
+import { formatDate, formatDateTime, pesos } from '../utils/format.js';
+import Badge, { OrderStatusBadge } from '../components/ui/Badge.jsx';
+import EmptyState from '../components/ui/EmptyState.jsx';
+import ErrorState from '../components/ui/ErrorState.jsx';
+import Icon from '../components/ui/Icon.jsx';
+import PageHeader from '../components/layout/PageHeader.jsx';
+import { ListSkeleton } from '../components/ui/Skeleton.jsx';
 
-const STATUS_LABELS = {
-  pending_payment: 'Waiting for payment',
-  paid: 'Paid',
-  processing: 'Processing',
-  shipped: 'Shipped',
-  delivered: 'Delivered',
-  cancelled: 'Cancelled',
-  expired: 'Expired',
-};
+const FILTERS = [
+  { value: 'all', label: 'All' },
+  { value: 'pending_payment', label: 'To pay' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'delivered', label: 'Delivered' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
 
 export default function Orders() {
+  useDocumentTitle('My orders');
+  const { token } = useAuth();
+  const { notify } = useToast();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [orders, setOrders] = useState([]);
-  const [detail, setDetail] = useState(null);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [payingId, setPayingId] = useState(null);
 
+  const { data, loading, error, refetch } = useApiQuery(
+    ({ signal }) => ordersApi.list({ limit: 50 }, { token, signal }),
+    [token]
+  );
+
+  // Backwards-compatible landing for backend redirect URLs (?paid=1 / ?canceled=1).
   useEffect(() => {
-    if (searchParams.get('paid')) setNotice('Payment page completed. The order is confirmed when the gateway webhook is verified — use "Check payment status" if it still shows as pending.');
-    if (searchParams.get('canceled')) setNotice('You returned from the payment page without paying. You can retry payment below.');
-    load();
+    const orderRef = searchParams.get('order') || searchParams.get('orderId') || '';
+    const suffix = orderRef ? `?order=${encodeURIComponent(orderRef)}` : '';
+    if (searchParams.get('paid')) navigate(`/payment/success${suffix}`, { replace: true });
+    else if (searchParams.get('canceled') || searchParams.get('cancelled')) {
+      navigate(`/payment/cancelled${suffix}`, { replace: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function load() {
-    try {
-      const data = await api('/orders', { token: getToken() });
-      setOrders(data);
-    } catch (e) {
-      setError(e.message);
-    }
-  }
+  const orders = useMemo(() => {
+    const list = Array.isArray(data) ? data : [];
+    if (filter === 'all') return list;
+    return list.filter((order) => order.status === filter);
+  }, [data, filter]);
 
-  async function open(order) {
+  async function retryPayment(order) {
+    setPayingId(order._id);
     try {
-      const data = await api(`/orders/${order._id}`, { token: getToken() });
-      setDetail(data);
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
-  async function cancel(order) {
-    if (!window.confirm('Cancel this unpaid order?')) return;
-    try {
-      await api(`/orders/${order._id}/cancel`, { method: 'POST', token: getToken() });
-      setDetail(null);
-      load();
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
-  async function retryPay(order) {
-    try {
-      const data = await api(`/orders/${order._id}/pay`, { method: 'POST', token: getToken() });
-      window.location.assign(data.checkoutUrl);
-    } catch (e) {
-      setError(e.message);
-    }
-  }
-
-  // Reconciliation path (L2-06): ask the backend to verify the payment with the gateway.
-  async function checkStatus(order) {
-    setError('');
-    try {
-      const data = await api(`/payments/status/${order._id}`, { token: getToken() });
-      setNotice(`Gateway says: ${data.gateway?.status || 'unknown'}. Order status: ${data.order.status}.`);
-      load();
-    } catch (e) {
-      setError(e.message);
+      const result = await ordersApi.retryPayment(order._id, { token });
+      if (!result?.checkoutUrl) throw new Error('The payment session did not return a checkout URL.');
+      window.location.assign(result.checkoutUrl);
+    } catch (caught) {
+      notify(describeError(caught), { tone: 'error' });
+      setPayingId(null);
     }
   }
 
   return (
-    <>
-      <h1>My orders</h1>
-      <Alert kind="info">{notice}</Alert>
-      <Alert kind="error">{error}</Alert>
-      {orders.length === 0 && <p className="muted">No orders yet.</p>}
-      <table>
-        <thead>
-          <tr><th>Order</th><th>Date</th><th>Total</th><th>Status</th><th>Actions</th></tr>
-        </thead>
-        <tbody>
-          {orders.map((o) => (
-            <tr key={o._id}>
-              <td><strong>{o.orderNumber}</strong></td>
-              <td>{new Date(o.createdAt).toLocaleString()}</td>
-              <td>{pesos(o.totalCents)}</td>
-              <td><span className={`badge ${o.status === 'paid' ? '' : o.status === 'pending_payment' ? 'warn' : 'soft'}`}>{STATUS_LABELS[o.status]}</span></td>
-              <td>
-                <div className="row wrap" style={{ gap: 6 }}>
-                  <button className="btn small secondary" onClick={() => open(o)}>Details</button>
-                  {o.status === 'pending_payment' && (
-                    <>
-                      <button className="btn small" onClick={() => retryPay(o)}>Pay</button>
-                      <button className="btn small secondary" onClick={() => cancel(o)}>Cancel</button>
-                      <button className="btn small secondary" onClick={() => checkStatus(o)}>Check payment status</button>
-                    </>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="page">
+      <PageHeader
+        title="My orders"
+        subtitle="Track payment, pickup and delivery status"
+        backTo="/"
+        backLabel="Back to home"
+      />
 
-      {detail && (
-        <div className="panel" style={{ marginTop: 16 }}>
-          <div className="row space">
-            <h2 style={{ margin: 0 }}>{detail.order.orderNumber}</h2>
-            <button className="btn small secondary" onClick={() => setDetail(null)}>Close</button>
-          </div>
-          <p className="muted">{STATUS_LABELS[detail.order.status]} · {detail.order.method === 'pickup' ? `Campus pickup` : `Delivery to ${detail.order.shipping?.address}`}</p>
-          <table>
-            <thead><tr><th>Item</th><th>Price</th><th>Qty</th><th>Line total</th></tr></thead>
-            <tbody>
-              {detail.order.items.map((i, idx) => (
-                <tr key={idx}>
-                  <td>{i.title}</td><td>{pesos(i.priceCents)}</td><td>{i.qty}</td><td>{pesos(i.priceCents * i.qty)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="summary" style={{ marginTop: 12 }}>
-            <div className="row"><span>Subtotal</span><span>{pesos(detail.order.subtotalCents)}</span></div>
-            {detail.order.studentDiscountCents > 0 && <div className="row"><span>Student discount</span><span>−{pesos(detail.order.studentDiscountCents)}</span></div>}
-            {detail.order.discountCents > 0 && <div className="row"><span>Coupon {detail.order.coupon?.code}</span><span>−{pesos(detail.order.discountCents)}</span></div>}
-            <div className="row"><span>Shipping</span><span>{pesos(detail.order.shippingFeeCents)}</span></div>
-            {detail.order.payment?.amountMismatch && <div className="alert error">Amount mismatch flagged: {detail.order.payment.mismatchNote}</div>}
-            <div className="row total"><span>Total</span><span>{pesos(detail.order.totalCents)}</span></div>
-          </div>
-          <h2>Status history</h2>
-          <ul>
-            {detail.history.map((h, idx) => (
-              <li key={idx} className="muted">{new Date(h.at).toLocaleString()} · {STATUS_LABELS[h.from]} → {STATUS_LABELS[h.to]} {h.note ? `· ${h.note}` : ''}</li>
-            ))}
-          </ul>
+      <div className="chip-row chip-row--filter" role="tablist" aria-label="Filter orders by status">
+        {FILTERS.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="tab"
+            aria-selected={filter === option.value}
+            className={`chip ${filter === option.value ? 'is-selected' : ''}`}
+            onClick={() => setFilter(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      {loading && !data ? (
+        <ListSkeleton rows={3} />
+      ) : error ? (
+        <ErrorState title="Could not load your orders" message={describeError(error)} onRetry={refetch} />
+      ) : orders.length === 0 ? (
+        <EmptyState
+          title={filter === 'all' ? 'No orders yet' : 'No matching orders'}
+          description={
+            filter === 'all'
+              ? 'When you place an order it will appear here with its live server status.'
+              : 'Try a different status filter to see your other orders.'
+          }
+          actionLabel={filter === 'all' ? 'Start shopping' : 'Show all orders'}
+          actionTo={filter === 'all' ? '/products' : undefined}
+          onAction={filter === 'all' ? undefined : () => setFilter('all')}
+          icon="receipt"
+        />
+      ) : (
+        <div className="stack order-list" aria-live="polite">
+          {orders.map((order) => (
+            <article className="order-card" key={order._id}>
+              <Link to={`/orders/${order._id}`} className="order-card__link">
+                <div className="order-card__top">
+                  <div>
+                    <strong>{order.orderNumber}</strong>
+                    <p className="muted">{formatDateTime(order.createdAt)}</p>
+                  </div>
+                  <OrderStatusBadge status={order.status} />
+                </div>
+                <div className="order-card__meta">
+                  <span>
+                    <Icon name={order.method === 'pickup' ? 'store' : 'truck'} size={15} />
+                    {order.method === 'pickup' ? 'Campus pickup' : 'Home delivery'}
+                  </span>
+                  <span>{order.items?.length || 0} title{(order.items?.length || 0) === 1 ? '' : 's'}</span>
+                </div>
+                <div className="order-card__footer">
+                  <span className="muted">Total</span>
+                  <strong className="price">{pesos(order.totalCents)}</strong>
+                </div>
+              </Link>
+
+              <div className="order-card__actions">
+                {order.status === 'pending_payment' ? (
+                  <>
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--sm"
+                      onClick={() => retryPayment(order)}
+                      disabled={payingId === order._id}
+                    >
+                      {payingId === order._id ? 'Opening…' : 'Pay now'}
+                    </button>
+                    <Link to={`/orders/${order._id}`} className="btn btn--secondary btn--sm">
+                      Details
+                    </Link>
+                  </>
+                ) : (
+                  <Link to={`/orders/${order._id}`} className="btn btn--secondary btn--sm">
+                    View details
+                  </Link>
+                )}
+              </div>
+            </article>
+          ))}
         </div>
       )}
-    </>
+
+      {data?.meta?.total > orders.length && filter === 'all' && (
+        <p className="muted orders-note">
+          Showing {orders.length} of {data.meta.total} orders. Older orders are available from the administrator.
+        </p>
+      )}
+    </div>
   );
 }

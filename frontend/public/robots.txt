@@ -1,0 +1,17 @@
+# SPC Book Store — public bookstore front end
+User-agent: *
+Allow: /
+Allow: /products
+Allow: /products/
+Allow: /ai-assistant
+
+# Authenticated or transactional screens have no crawlable content.
+Disallow: /admin
+Disallow: /admin/
+Disallow: /cart
+Disallow: /checkout
+Disallow: /payment/
+Disallow: /orders
+Disallow: /login
+Disallow: /register
+Disallow: /api/

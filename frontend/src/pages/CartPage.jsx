@@ -1,64 +1,120 @@
 import { Link, useNavigate } from 'react-router-dom';
+import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
 import { useCart } from '../context/CartContext.jsx';
-import { pesos } from '../api/client.js';
-import Alert from '../components/Alert.jsx';
+import { useNetworkStatus } from '../context/NetworkStatusContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import { describeError } from '../utils/errors.js';
+import Alert from '../components/ui/Alert.jsx';
+import CartLine from '../components/cart/CartLine.jsx';
+import EmptyState from '../components/ui/EmptyState.jsx';
+import Icon from '../components/ui/Icon.jsx';
+import { ListSkeleton } from '../components/ui/Skeleton.jsx';
+import OrderSummary from '../components/cart/OrderSummary.jsx';
+import PageHeader from '../components/layout/PageHeader.jsx';
+import StickyActionBar from '../components/layout/StickyActionBar.jsx';
+import { pesos } from '../utils/format.js';
 
 export default function CartPage() {
-  const { cart, updateItem, removeItem } = useCart();
+  useDocumentTitle('Your cart');
+  const { cart, updateItem, removeItem, loading, offlineSnapshot, pendingIds, isMutating } = useCart();
+  const { online } = useNetworkStatus();
+  const { notify } = useToast();
   const navigate = useNavigate();
 
-  async function change(productId, qty) {
+  async function changeQty(productId, qty) {
     try {
       await updateItem(productId, qty);
-    } catch (e) {
-      alert(e.message);
+    } catch (caught) {
+      notify(describeError(caught), { tone: 'error' });
     }
+  }
+
+  async function remove(productId) {
+    try {
+      await removeItem(productId);
+      notify('Item removed from cart.', { tone: 'info' });
+    } catch (caught) {
+      notify(describeError(caught), { tone: 'error' });
+    }
+  }
+
+  if (loading && cart.items.length === 0) {
+    return (
+      <div className="page">
+        <PageHeader title="Your cart" backTo="/products" backLabel="Back to catalog" />
+        <ListSkeleton rows={2} />
+      </div>
+    );
   }
 
   if (cart.items.length === 0) {
     return (
-      <>
-        <h1>Your cart</h1>
-        <p className="muted">Your cart is empty. <Link to="/">Browse the catalog</Link>.</p>
-      </>
+      <div className="page">
+        <PageHeader title="Your cart" backTo="/products" backLabel="Back to catalog" />
+        <EmptyState
+          title="Your cart is empty"
+          description="Browse textbooks, reviewers and campus essentials, then add them here."
+          actionLabel="Browse the catalog"
+          actionTo="/products"
+          icon="bag"
+        />
+      </div>
     );
   }
 
   return (
-    <>
-      <h1>Your cart</h1>
-      <table>
-        <thead>
-          <tr><th>Item</th><th>Price</th><th>Qty</th><th>Line total</th><th></th></tr>
-        </thead>
-        <tbody>
-          {cart.items.map((item) => (
-            <tr key={item.productId}>
-              <td>
-                <strong>{item.title}</strong>
-                <div className="muted">{item.author}</div>
-              </td>
-              <td>{pesos(item.priceCents)}</td>
-              <td>
-                <div className="row" style={{ gap: 6 }}>
-                  <button className="btn small secondary" onClick={() => change(item.productId, item.qty - 1)} disabled={item.qty <= 1}>−</button>
-                  {item.qty}
-                  <button className="btn small secondary" onClick={() => change(item.productId, item.qty + 1)} disabled={item.qty >= item.stock}>+</button>
-                </div>
-              </td>
-              <td>{pesos(item.lineTotalCents)}</td>
-              <td><button className="btn small" onClick={() => removeItem(item.productId)}>Remove</button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="summary" style={{ marginTop: 16 }}>
-        <div className="row"><span>Items</span><span>{cart.itemCount}</span></div>
-        <div className="row total"><span>Subtotal</span><span>{pesos(cart.subtotalCents)}</span></div>
-        <p className="muted">Discounts, coupon and shipping are computed by the server at checkout.</p>
-        <button className="btn" style={{ width: '100%' }} onClick={() => navigate('/checkout')}>Proceed to checkout</button>
+    <div className="page page--with-action-bar">
+      <PageHeader
+        title="Your cart"
+        subtitle={`${cart.itemCount} item${cart.itemCount === 1 ? '' : 's'}`}
+        backTo="/products"
+        backLabel="Back to catalog"
+      />
+
+      {(offlineSnapshot || !online) && (
+        <Alert kind="info">
+          Offline: this is your saved cart. Quantities and checkout will sync when you reconnect.
+        </Alert>
+      )}
+
+      <div className="stack cart-list">
+        {cart.items.map((item) => (
+          <CartLine
+            key={item.productId}
+            item={item}
+            onChange={changeQty}
+            onRemove={remove}
+            pending={Boolean(pendingIds[item.productId]) || isMutating}
+          />
+        ))}
       </div>
-      <Alert>{null}</Alert>
-    </>
+
+      <OrderSummary itemCount={cart.itemCount} subtotalCents={cart.subtotalCents}>
+        <p className="summary-note">
+          <Icon name="shield" size={15} /> Coupons, student discounts and shipping are calculated on the server at checkout.
+        </p>
+      </OrderSummary>
+
+      <p className="muted cart-edit-note">
+        Need more? <Link to="/products">Keep browsing</Link>
+      </p>
+
+      <StickyActionBar label="Checkout">
+        <div className="sticky-action-bar__totals">
+          <span className="muted">Subtotal</span>
+          <strong>{pesos(cart.subtotalCents)}</strong>
+        </div>
+        <button
+          type="button"
+          className="btn btn--primary sticky-action-bar__main"
+          onClick={() => navigate('/checkout')}
+          disabled={!online || isMutating}
+          title={!online ? 'Checkout is unavailable while offline' : undefined}
+        >
+          {online ? 'Checkout' : 'Offline'}
+          {online && <Icon name="arrowRight" size={17} />}
+        </button>
+      </StickyActionBar>
+    </div>
   );
 }

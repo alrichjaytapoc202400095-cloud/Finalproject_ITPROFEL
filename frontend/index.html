@@ -2,12 +2,53 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>" />
-    <title>SPC Book Store</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#5c111c" />
+
+    <title>SPC Book Store — Campus bookstore, one tap away</title>
+    <meta
+      name="description"
+      content="Find required textbooks, reserve campus pickup, and pay securely at the St. Peter's College Book Store. Installable mobile-first PWA."
+    />
+    <meta name="author" content="St. Peter's College Book Store" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icons/icon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="SPC Books" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="application-name" content="SPC Book Store" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="SPC Book Store" />
+    <meta property="og:title" content="SPC Book Store — Campus bookstore, one tap away" />
+    <meta
+      property="og:description"
+      content="Required textbooks, campus pickup slots, and secure checkout for St. Peter's College students."
+    />
+    <meta property="og:image" content="/icons/icon-512.png" />
+    <meta property="og:locale" content="en_PH" />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="SPC Book Store" />
+    <meta
+      name="twitter:description"
+      content="Required textbooks, campus pickup slots, and secure checkout for St. Peter's College students."
+    />
+    <meta name="twitter:image" content="/icons/icon-512.png" />
   </head>
   <body>
     <div id="root"></div>
+    <noscript>
+      <div style="padding: 24px; font-family: system-ui, sans-serif">
+        <h1>SPC Book Store</h1>
+        <p>This bookstore needs JavaScript enabled to browse the catalog and place orders.</p>
+      </div>
+    </noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -1,107 +1,224 @@
-import { useEffect, useState } from 'react';
-import { api, getToken } from '../api/client.js';
-import ProductCard from '../components/ProductCard.jsx';
-import Alert from '../components/Alert.jsx';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { catalogApi } from '../api/endpoints.js';
+import { readJsonCache, writeJsonCache } from '../api/client.js';
+import { CACHE_KEYS } from '../utils/constants.js';
+import { describeError } from '../utils/errors.js';
+import { useAuth } from '../context/AuthContext.jsx';
 import { useCart } from '../context/CartContext.jsx';
+import { useNetworkStatus } from '../context/NetworkStatusContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import { useDocumentTitle } from '../hooks/useDocumentTitle.js';
+import Alert from '../components/ui/Alert.jsx';
+import Icon from '../components/ui/Icon.jsx';
+import ProductGrid from '../components/product/ProductGrid.jsx';
+import { ProductGridSkeleton } from '../components/ui/Skeleton.jsx';
+
+const VALUE_PROPS = [
+  {
+    icon: 'store',
+    title: 'Campus pickup',
+    body: 'Reserve a slot and collect your books without the queue.',
+  },
+  {
+    icon: 'shield',
+    title: 'Student discount',
+    body: 'Verified students get an automatic discount at checkout.',
+  },
+  {
+    icon: 'card',
+    title: 'Secure payment',
+    body: 'PayMongo test checkout confirms every payment on the server.',
+  },
+];
 
 export default function Home() {
-  const { addItem } = useCart();
+  useDocumentTitle('Campus bookstore');
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { addItem, pendingIds } = useCart();
+  const { online } = useNetworkStatus();
+  const { notify } = useToast();
+
   const [products, setProducts] = useState([]);
-  const [meta, setMeta] = useState({ page: 1, pages: 1, total: 0 });
   const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [cached, setCached] = useState(false);
+  const [search, setSearch] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const [filters, setFilters] = useState({ q: '', category: '', sort: 'newest', course: '', min: '', max: '' });
-  const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    api('/categories').then(setCategories).catch(() => {});
-  }, []);
+  const cachedSnapshot = useMemo(() => readJsonCache(CACHE_KEYS.catalog, null), []);
 
   useEffect(() => {
-    const params = new URLSearchParams();
-    if (filters.q) params.set('q', filters.q);
-    if (filters.category) params.set('category', filters.category);
-    if (filters.course) params.set('course', filters.course);
-    if (filters.min) params.set('min', filters.min);
-    if (filters.max) params.set('max', filters.max);
-    params.set('sort', filters.sort);
-    params.set('page', String(page));
-    params.set('limit', '12');
-    let active = true;
-    const timer = setTimeout(() => {
-      api(`/products?${params.toString()}`)
-        .then((data) => {
-          if (!active) return;
-          setProducts(data);
-          setMeta(data.meta || { page: 1, pages: 1, total: data.length });
-          // Clear an error from an earlier failed request (e.g. the API was
-          // still starting). Without this it stays on screen until a reload.
-          setError('');
-        })
-        .catch((e) => {
-          if (active) setError(e.message);
-        });
-    }, 250);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [filters, page]);
-
-  async function quickAdd(productId) {
-    setBusy(true);
+    const controller = new AbortController();
+    setLoading(true);
     setError('');
+
+    Promise.all([
+      catalogApi.products({ limit: 8, sort: 'newest' }, { signal: controller.signal }),
+      catalogApi.categories({ signal: controller.signal }),
+    ])
+      .then(([productList, categoryList]) => {
+        if (controller.signal.aborted) return;
+        setProducts(productList);
+        setCategories(categoryList);
+        setCached(false);
+        writeJsonCache(CACHE_KEYS.catalog, {
+          products: productList,
+          categories: categoryList,
+        });
+      })
+      .catch((caught) => {
+        if (controller.signal.aborted || caught.name === 'AbortError') return;
+        const snapshot = readJsonCache(CACHE_KEYS.catalog, null);
+        if (snapshot?.products?.length) {
+          setProducts(snapshot.products);
+          setCategories(snapshot.categories || []);
+          setCached(true);
+          setError('Showing the last books you browsed. Some details may have changed.');
+        } else {
+          setError(describeError(caught));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [reloadKey]);
+
+  function submitSearch(event) {
+    event.preventDefault();
+    const query = search.trim();
+    navigate(query ? `/products?q=${encodeURIComponent(query)}` : '/products');
+  }
+
+  async function handleAdd(product) {
+    if (!user) {
+      notify('Sign in to add books to your cart.', { tone: 'info' });
+      navigate('/login', { state: { from: { pathname: `/products/${product._id}` } } });
+      return;
+    }
+    if (!online) {
+      notify('You are offline. Reconnect to update your cart.', { tone: 'error' });
+      return;
+    }
     try {
-      await addItem(productId, 1);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setBusy(false);
+      await addItem(product._id, 1);
+      notify(`${product.title} added to cart.`, { tone: 'success' });
+    } catch (caught) {
+      notify(describeError(caught), { tone: 'error' });
     }
   }
 
   return (
-    <>
-      <h1>Catalog</h1>
-      <Alert kind="error">{error}</Alert>
-      <div className="toolbar">
-        <input placeholder="Search title, author, course…" value={filters.q} onChange={(e) => { setPage(1); setFilters({ ...filters, q: e.target.value }); }} />
-        <select value={filters.category} onChange={(e) => { setPage(1); setFilters({ ...filters, category: e.target.value }); }}>
-          <option value="">All categories</option>
-          {categories.map((c) => <option key={c._id} value={c._id}>{c.name}</option>)}
-        </select>
-        <input placeholder="Course code e.g. IT101" value={filters.course} onChange={(e) => { setPage(1); setFilters({ ...filters, course: e.target.value }); }} style={{ maxWidth: 170 }} />
-        <select value={filters.sort} onChange={(e) => setFilters({ ...filters, sort: e.target.value })}>
-          <option value="newest">Newest</option>
-          <option value="price_asc">Price ↑</option>
-          <option value="price_desc">Price ↓</option>
-          <option value="title">Title A–Z</option>
-        </select>
-        <input type="number" placeholder="Min ₱" value={filters.min} onChange={(e) => { setPage(1); setFilters({ ...filters, min: e.target.value }); }} style={{ maxWidth: 90 }} />
-        <input type="number" placeholder="Max ₱" value={filters.max} onChange={(e) => { setPage(1); setFilters({ ...filters, max: e.target.value }); }} style={{ maxWidth: 90 }} />
-      </div>
+    <div className="page page--home">
+      <section className="hero" aria-labelledby="hero-title">
+        <p className="hero__eyebrow">Mobile campus bookstore</p>
+        <h1 id="hero-title">
+          Your books, <span>one tap away.</span>
+        </h1>
+        <p className="hero__copy">
+          Find required textbooks by course code, reserve campus pickup, and pay securely — right from your phone.
+        </p>
 
-      <div className="grid">
-        {products.map((p) => (
-          <div key={p._id}>
-            <ProductCard product={p} />
-            {p.stock > 0 && getToken() && (
-              <button className="btn small secondary" style={{ marginTop: 6, width: '100%' }} disabled={busy} onClick={() => quickAdd(p._id)}>
-                Quick add
-              </button>
-            )}
+        <form className="search-bar" role="search" onSubmit={submitSearch}>
+          <label htmlFor="home-search" className="sr-only">
+            Search books, authors or course codes
+          </label>
+          <Icon name="search" size={19} className="search-bar__icon" />
+          <input
+            id="home-search"
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search title, author or IT101…"
+            maxLength={80}
+            autoComplete="off"
+            enterKeyHint="search"
+          />
+          <button type="submit" className="search-bar__submit" aria-label="Search catalog">
+            <Icon name="arrowRight" size={18} />
+          </button>
+        </form>
+
+        {categories.length > 0 && (
+          <nav className="chip-row" aria-label="Browse categories">
+            {categories.map((category) => (
+              <Link
+                key={category._id}
+                to={`/products?category=${encodeURIComponent(category._id)}`}
+                className="chip"
+              >
+                {category.name}
+              </Link>
+            ))}
+          </nav>
+        )}
+      </section>
+
+      {error && (
+        <Alert
+          kind={cached ? 'info' : 'error'}
+          onRetry={cached ? undefined : () => setReloadKey((value) => value + 1)}
+        >
+          {error}
+        </Alert>
+      )}
+
+      {!online && (
+        <p className="inline-note">
+          <Icon name="wifiOff" size={16} /> Offline: showing cached catalog items only.
+        </p>
+      )}
+
+      <section aria-labelledby="featured-title" className="section">
+        <div className="section__header">
+          <div>
+            <h2 id="featured-title">Fresh on the shelf</h2>
+            <p className="muted">Newest arrivals and required course titles</p>
           </div>
-        ))}
-      </div>
-      {products.length === 0 && <p className="muted">No products match your filters.</p>}
+          <Link to="/products" className="text-link">
+            View all <Icon name="chevronRight" size={15} />
+          </Link>
+        </div>
 
-      <div className="pagination">
-        <button className="btn small secondary" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</button>
-        <span className="muted">Page {meta.page} of {meta.pages} · {meta.total} items</span>
-        <button className="btn small secondary" disabled={page >= meta.pages} onClick={() => setPage(page + 1)}>Next</button>
-      </div>
-    </>
+        {loading && products.length === 0 ? (
+          <ProductGridSkeleton count={4} />
+        ) : (
+          <ProductGrid
+            products={products}
+            onAdd={handleAdd}
+            pendingIds={pendingIds}
+            addDisabled={!online}
+          />
+        )}
+
+        {!loading && products.length === 0 && !error && (
+          <p className="muted">The catalog is being restocked. Please check back shortly.</p>
+        )}
+      </section>
+
+      <section className="value-props" aria-label="Why shop with us">
+        {VALUE_PROPS.map((item) => (
+          <article className="value-card" key={item.title}>
+            <span className="value-card__icon" aria-hidden="true">
+              <Icon name={item.icon} size={19} />
+            </span>
+            <div>
+              <h3>{item.title}</h3>
+              <p className="muted">{item.body}</p>
+            </div>
+          </article>
+        ))}
+      </section>
+
+      {cachedSnapshot && !user && (
+        <p className="muted home-hint">
+          Sign in to keep your cart, receive student pricing and track orders.
+        </p>
+      )}
+    </div>
   );
 }
