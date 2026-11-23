@@ -126,15 +126,6 @@ export default function Login() {
           New to SPC Book Store? <Link to="/register">Create an account</Link>
         </p>
 
-        <details className="demo-accounts">
-          <summary>Demo accounts</summary>
-          <p className="muted">
-            Customer: <code>juan@spc.edu</code> / <code>Juan#1234</code>
-            <br />
-            Admin: <code>admin@spc.edu</code> / <code>Admin#1234</code>
-          </p>
-        </details>
-
         <Link to="/" className="auth-back">
           <Icon name="arrowLeft" size={16} /> Back to storefront
         </Link>
