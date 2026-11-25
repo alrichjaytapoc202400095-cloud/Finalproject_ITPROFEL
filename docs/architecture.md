@@ -136,8 +136,10 @@ classDiagram
 
 ## 5. Deployment topology
 
-- **Frontend:** Vercel (React + Vite) — set `VITE_API_URL` to the API URL.
+- **Frontend:** Render static site (or Vercel/Netlify) — root `frontend/`,
+  build `npm run build`, publish `dist`, set `VITE_API_BASE_URL` to the API URL.
 - **API:** Render (Node web service) — root `backend/`, start `npm start`.
+  A ready-to-use `render.yaml` blueprint lives at the repository root.
 - **Database:** MongoDB Atlas — network access limited to the API host.
 - **Webhook:** register `https://<api-domain>/api/v1/payments/webhook` in the
   PayMongo dashboard; for local development use ngrok and re-register.

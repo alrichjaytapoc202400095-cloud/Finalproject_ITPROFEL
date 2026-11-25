@@ -236,7 +236,47 @@ npx lighthouse@11.7.1 http://localhost:4173/ --view
 
 ## Deployment
 
-Both config files are included and ready to use.
+Configs for Render, Vercel and Netlify are included.
+
+### Render (API + static site, blueprint included)
+
+The repository root contains [`render.yaml`](../render.yaml), which deploys the
+API as a Node web service and this Vite app as a static site.
+
+1. Push the repository to GitHub.
+2. **Database (recommended):** create a free MongoDB Atlas M0 cluster, a database
+   user, and allow Render's outbound traffic (`0.0.0.0/0` for the free tier).
+   Copy the `mongodb+srv://…` connection string.
+3. In Render: **New + → Blueprint**, select the repository, and apply
+   `render.yaml`. The blueprint runs `npm run seed` once after the API's first
+   successful deploy, so Atlas is seeded automatically. If you ever need to
+   reseed manually:
+   ```powershell
+   cd backend
+   $env:MONGO_URI = "mongodb+srv://USER:PASS@cluster.mongodb.net/?retryWrites=true&w=majority"
+   $env:MONGO_DB_NAME = "spcbookstore"
+   npm run seed:reset
+   ```
+4. Fill the prompted values:
+   | Service | Variable | Value |
+   | --- | --- | --- |
+   | API | `MONGO_URI` | Atlas connection string (blank = ephemeral in-memory DB) |
+   | API | `FRONTEND_URL` | `https://<web-service>.onrender.com` |
+   | API | `CORS_ORIGINS` | same origin as `FRONTEND_URL` (comma-separate custom domains) |
+   | API | `MAYA_PUBLIC_KEY` / `MAYA_SECRET_KEY` | Maya sandbox keys |
+   | Static | `VITE_API_BASE_URL` | `https://<api-service>.onrender.com` |
+5. Wait for both deploys, then verify:
+   - `https://<api-service>.onrender.com/health` → `{"status":"ok"}`
+   - `https://<web-service>.onrender.com` loads and installs as a PWA.
+6. Optional: register the payment webhook at
+   `https://<api-service>.onrender.com/api/v1/payments/webhook`.
+
+> **Free plan:** web services sleep after ~15 minutes of inactivity. The first
+> request can take 30–60 s; wake the API before a demo. Atlas keeps data across
+> restarts; the in-memory fallback reseeds on every boot.
+>
+> The backend redirects payment returns to `FRONTEND_URL/orders?paid=1…`, so
+> `FRONTEND_URL` **must** be the deployed static-site origin.
 
 ### Vercel
 

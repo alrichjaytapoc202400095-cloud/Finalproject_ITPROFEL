@@ -1,0 +1,111 @@
+# Render Blueprint — SPC Book Store
+#
+# Deploys two services from this monorepo:
+#   1. spc-bookstore-api  — Express API (Node web service, root: backend)
+#   2. spc-bookstore-web  — React/Vite PWA (static site, root: frontend)
+#
+# Usage:
+#   Render Dashboard -> New + -> Blueprint -> connect this repository -> Apply.
+#   Render prompts for every env var marked `sync: false`.
+#
+# After the first apply, set the two services' URLs in each other's env vars:
+#   API    FRONTEND_URL / CORS_ORIGINS = https://<web-service>.onrender.com
+#   Static VITE_API_BASE_URL           = https://<api-service>.onrender.com
+# (Service URLs are shown on each service page; names below may be suffixed if
+#  they are already taken in your Render account.)
+
+services:
+  - type: web
+    name: spc-bookstore-api
+    runtime: node
+    plan: free
+    # Closest region to the Philippines. Remove if your workspace only allows Oregon.
+    region: singapore
+    rootDir: backend
+    buildCommand: npm ci --include=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    # Seeds Atlas once after the first successful deploy (upserts, safe to rerun).
+    initialDeployHook: npm run seed
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      # MongoDB Atlas connection string. Leave blank to use the ephemeral
+      # in-memory MongoDB (demo data is reseeded on every restart/sleep).
+      - key: MONGO_URI
+        sync: false
+      - key: MONGO_DB_NAME
+        value: spcbookstore
+
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TOKEN_TTL_HOURS
+        value: "2"
+
+      # Both must be the deployed static-site origin (no trailing slash).
+      # Example: https://spc-bookstore-web.onrender.com
+      - key: FRONTEND_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+
+      # Payment provider. Existing demo config uses Maya sandbox keys.
+      - key: PAYMENT_PROVIDER
+        value: maya
+      - key: MAYA_PUBLIC_KEY
+        sync: false
+      - key: MAYA_SECRET_KEY
+        sync: false
+      - key: MAYA_WEBHOOK_SECRET
+        sync: false
+
+      # Optional: enables real AI answers. Without it the API returns its
+      # grounded fallback product results, which the UI handles gracefully.
+      - key: GEMINI_API_KEY
+        sync: false
+
+      - key: SHIPPING_FEE_CENTAVOS
+        value: "5000"
+      - key: STUDENT_DISCOUNT_PERCENT
+        value: "5"
+      - key: ORDER_EXPIRY_MINUTES
+        value: "60"
+
+  - type: web
+    name: spc-bookstore-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - frontend/**
+    envVars:
+      # API origin WITHOUT /api/v1 and WITHOUT a trailing slash.
+      # Example: https://spc-bookstore-api.onrender.com
+      - key: VITE_API_BASE_URL
+        sync: false
+    routes:
+      # React Router SPA fallback (static assets are served before this rule).
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /sw.js
+        name: Cache-Control
+        value: public, max-age=0, must-revalidate
+      - path: /manifest.webmanifest
+        name: Content-Type
+        value: application/manifest+json
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /icons/*
+        name: Cache-Control
+        value: public, max-age=604800
